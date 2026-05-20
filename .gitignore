@@ -1,0 +1,18 @@
+node_modules
+.next
+out
+build
+.env.local
+.env*.local
+*.log
+.DS_Store
+.vercel
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# 메모/비밀번호 텍스트 파일 — 절대 push 금지
+*Password*.txt
+*password*.txt
+*Secret*.txt
+*secret*.txt
+*.key.txt

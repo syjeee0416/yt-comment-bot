@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg: #0a0a0f;
+  --color-fg: #ededed;
+  --color-muted: #9ca3af;
+  --color-subtle: #6b7280;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.15);
+  --color-card: rgba(255, 255, 255, 0.03);
+  --color-card-hover: rgba(255, 255, 255, 0.05);
+  --color-accent-1: #7c3aed;
+  --color-accent-2: #ec4899;
+  --color-accent-text: #a78bfa;
+  --color-accent-chip: #c4b5fd;
+  --font-sans: "Pretendard", "Inter", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Menlo", monospace;
+}
+
+:root {
+  --color-bg: #0a0a0f;
+  --color-fg: #ededed;
+  --color-muted: #9ca3af;
+  --color-subtle: #6b7280;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.15);
+  --color-card: rgba(255, 255, 255, 0.03);
+  --color-card-hover: rgba(255, 255, 255, 0.05);
+  --color-accent-1: #7c3aed;
+  --color-accent-2: #ec4899;
+  --color-accent-text: #a78bfa;
+  --color-accent-chip: #c4b5fd;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: #0a0a0f;
+    color: #ededed;
+    font-family: "Pretendard", "Inter", -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    position: relative;
+    min-height: 100vh;
+    isolation: isolate;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(124, 58, 237, 0.18), transparent 50%),
+      radial-gradient(circle at 85% 100%, rgba(236, 72, 153, 0.12), transparent 50%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  textarea,
+  input,
+  button {
+    font-family: inherit;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgba(237, 237, 237, 0.4);
+  }
+}
+
+@utility brand-text {
+  background: linear-gradient(135deg, #fff 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
