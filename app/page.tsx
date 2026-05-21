@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Channel = {
   id: string;
@@ -74,6 +74,11 @@ export default function CommentsPage() {
   const [accounts, setAccounts] = useState<YtAccount[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [totalWaiting, setTotalWaiting] = useState<number>(0);
+  const [bulk, setBulk] = useState<{
+    type: "draft" | "post";
+    current: number;
+    total: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "warn"; text: string } | null>(null);
@@ -307,6 +312,115 @@ export default function CommentsPage() {
     }
   };
 
+  // ─── 일괄 처리 ───────────────────────────────────────────
+  const bulkAbortRef = useRef(false);
+
+  const stopBulk = () => {
+    bulkAbortRef.current = true;
+  };
+
+  const bulkDraft = async () => {
+    const targets = comments.filter((c) => c.status === "new");
+    if (targets.length === 0) {
+      setBanner({ kind: "ok", text: "초안 생성할 새 댓글이 없어요." });
+      return;
+    }
+    if (
+      !confirm(
+        `${targets.length}개 댓글에 답글 초안을 자동 생성합니다.\n` +
+          `한 건당 5~10초 정도 걸리고 중간에 중지할 수 있어요. 계속할까요?`,
+      )
+    )
+      return;
+    bulkAbortRef.current = false;
+    setBulk({ type: "draft", current: 0, total: targets.length });
+    let ok = 0,
+      skip = 0,
+      err = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (bulkAbortRef.current) break;
+      try {
+        const res = await fetch("/api/yt-comments/draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ commentId: targets[i].id }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (data.skipped) skip++;
+          else ok++;
+        } else err++;
+      } catch {
+        err++;
+      }
+      setBulk({ type: "draft", current: i + 1, total: targets.length });
+    }
+    const stopped = bulkAbortRef.current;
+    setBulk(null);
+    await loadComments();
+    setBanner({
+      kind: "ok",
+      text:
+        (stopped ? "중지됨. " : "") +
+        `초안 생성 ${ok}개 · 스팸 건너뜀 ${skip}개 · 실패 ${err}개`,
+    });
+  };
+
+  const bulkPost = async () => {
+    const targets = comments.filter(
+      (c) => c.latest_reply && c.latest_reply.status === "draft",
+    );
+    if (targets.length === 0) {
+      setBanner({ kind: "ok", text: "게시할 답글 초안이 없어요." });
+      return;
+    }
+    const minutes = Math.ceil((targets.length * 2) / 60);
+    if (
+      !confirm(
+        `⚠️ 검토 없이 ${targets.length}개 답글을 유튜브에 자동 게시합니다.\n\n` +
+          `톤이 마음에 안 드는 답글도 그대로 올라가니, 시간이 있으면 검토 후 게시를 권장해요.\n\n` +
+          `한 건당 2초 간격 · 약 ${minutes}분 소요 · 중간 중지 가능.\n\n계속할까요?`,
+      )
+    )
+      return;
+    bulkAbortRef.current = false;
+    setBulk({ type: "post", current: 0, total: targets.length });
+    let ok = 0,
+      err = 0;
+    for (let i = 0; i < targets.length; i++) {
+      if (bulkAbortRef.current) break;
+      const reply = targets[i].latest_reply!;
+      const finalText = (editedDrafts[reply.id] ?? reply.draft_text).trim();
+      if (!finalText) {
+        err++;
+      } else {
+        try {
+          const res = await fetch("/api/yt-comments/reply", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ replyId: reply.id, finalText }),
+          });
+          if (res.ok) ok++;
+          else err++;
+        } catch {
+          err++;
+        }
+      }
+      setBulk({ type: "post", current: i + 1, total: targets.length });
+      // YouTube spam 신호 회피를 위해 2초 간격
+      if (i < targets.length - 1 && !bulkAbortRef.current) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    const stopped = bulkAbortRef.current;
+    setBulk(null);
+    await loadComments();
+    setBanner({
+      kind: "ok",
+      text: (stopped ? "중지됨. " : "") + `게시 ${ok}개 · 실패 ${err}개`,
+    });
+  };
+
   const post = async (reply: Reply) => {
     const finalText = editedDrafts[reply.id] ?? reply.draft_text;
     if (!finalText.trim()) {
@@ -515,9 +629,63 @@ export default function CommentsPage() {
       {/* 댓글 리스트 */}
       {account && (
         <>
-          <div className="text-xs uppercase tracking-wider text-[var(--color-subtle)] mb-3">
-            답글 대기 ({totalWaiting}
-            {totalWaiting > comments.length ? ` · 화면 ${comments.length}` : ""})
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <div className="text-xs uppercase tracking-wider text-[var(--color-subtle)]">
+              답글 대기 ({totalWaiting}
+              {totalWaiting > comments.length ? ` · 화면 ${comments.length}` : ""})
+            </div>
+            {!bulk ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={bulkDraft}
+                  disabled={comments.filter((c) => c.status === "new").length === 0}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-[var(--color-line)] hover:border-[var(--color-line-strong)] disabled:opacity-40"
+                  title="화면의 새 댓글 전부에 답글 초안 자동 생성"
+                >
+                  일괄 초안 생성 (
+                  {comments.filter((c) => c.status === "new").length})
+                </button>
+                <button
+                  onClick={bulkPost}
+                  disabled={
+                    comments.filter(
+                      (c) => c.latest_reply && c.latest_reply.status === "draft",
+                    ).length === 0
+                  }
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-40"
+                  title="검토 없이 초안들을 유튜브에 일괄 게시 (2초 간격)"
+                >
+                  일괄 게시 (
+                  {
+                    comments.filter(
+                      (c) => c.latest_reply && c.latest_reply.status === "draft",
+                    ).length
+                  }
+                  )
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="text-xs text-[var(--color-muted)]">
+                  {bulk.type === "draft" ? "초안 생성 중" : "게시 중"} ·{" "}
+                  {bulk.current}/{bulk.total}
+                </div>
+                <div className="w-32 h-1.5 rounded-full bg-[var(--color-line)] overflow-hidden">
+                  <div
+                    className="h-full bg-[var(--color-accent-text)] transition-all"
+                    style={{
+                      width: `${Math.round((bulk.current / bulk.total) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={stopBulk}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
+                >
+                  중지
+                </button>
+              </div>
+            )}
           </div>
           {comments.length === 0 ? (
             <div className="text-sm text-[var(--color-muted)] rounded-xl border border-dashed border-[var(--color-line)] px-5 py-8 text-center">
