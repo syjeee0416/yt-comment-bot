@@ -73,6 +73,7 @@ export default function CommentsPage() {
   const [channelId, setChannelId] = useState<string>("");
   const [accounts, setAccounts] = useState<YtAccount[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [totalWaiting, setTotalWaiting] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ kind: "ok" | "warn"; text: string } | null>(null);
@@ -144,8 +145,10 @@ export default function CommentsPage() {
     try {
       const res = await fetch(`/api/yt-comments?channel_id=${channelId}`);
       const data = await res.json();
-      if (res.ok) setComments(data.items ?? []);
-      else
+      if (res.ok) {
+        setComments(data.items ?? []);
+        setTotalWaiting(Number(data.total ?? data.items?.length ?? 0));
+      } else
         setBanner({
           kind: "warn",
           text: safeMessage(data.error, "댓글 로드 실패"),
@@ -157,7 +160,10 @@ export default function CommentsPage() {
 
   useEffect(() => {
     if (channelId && account) loadComments();
-    else setComments([]);
+    else {
+      setComments([]);
+      setTotalWaiting(0);
+    }
   }, [channelId, account, loadComments]);
 
   const addChannel = async () => {
@@ -510,7 +516,8 @@ export default function CommentsPage() {
       {account && (
         <>
           <div className="text-xs uppercase tracking-wider text-[var(--color-subtle)] mb-3">
-            답글 대기 ({comments.length})
+            답글 대기 ({totalWaiting}
+            {totalWaiting > comments.length ? ` · 화면 ${comments.length}` : ""})
           </div>
           {comments.length === 0 ? (
             <div className="text-sm text-[var(--color-muted)] rounded-xl border border-dashed border-[var(--color-line)] px-5 py-8 text-center">

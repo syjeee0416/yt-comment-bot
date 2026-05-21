@@ -19,9 +19,10 @@ export async function GET(req: NextRequest) {
       : ["new", "drafted", "approved"];
 
     const sb = getSupabaseAdmin();
-    const { data: comments, error } = await sb
+    // count='exact'로 전체 개수도 한 번에. data는 limit(200)으로 제한.
+    const { data: comments, count: totalWaiting, error } = await sb
       .from("yt_comments")
-      .select("*")
+      .select("*", { count: "exact" })
       .eq("channel_id", channelId)
       .in("status", statuses)
       // 오래된 댓글부터 — 묵힌 댓글을 먼저 처리해서 시청자가 잊기 전에 답글 달기.
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
       latest_reply: latestReplyByComment.get(c.id) ?? null,
     }));
 
-    return NextResponse.json({ items });
+    return NextResponse.json({ items, total: totalWaiting ?? items.length });
   } catch (err) {
     return errorResponse(err);
   }
