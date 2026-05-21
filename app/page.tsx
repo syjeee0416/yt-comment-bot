@@ -62,6 +62,26 @@ function safeMessage(v: unknown, fallback = "오류"): string {
   return fallback;
 }
 
+// 답글 게시 실패 시 카드에 보일 메시지를 한국어로 친절하게 변환.
+function prettifyReplyError(raw: string): string {
+  if (/quotaExceeded|exceeded your.+quota/i.test(raw)) {
+    return "YouTube 일일 쿼터 초과 — 한국시간 오후 4~5시쯤 리셋 후 다시 시도하세요.";
+  }
+  if (/spam/i.test(raw)) {
+    return "유튜브가 스팸으로 판단했어요. 본문을 살짝 바꿔서 다시 시도해 보세요.";
+  }
+  if (/commentsDisabled|disabled comments/i.test(raw)) {
+    return "이 영상의 댓글이 꺼져 있어요.";
+  }
+  if (/forbidden|\b403\b/i.test(raw)) {
+    return "권한 부족 또는 영상 설정 문제 (비공개·연령 제한 등).";
+  }
+  if (/processingFailure|backend|\b500\b/i.test(raw)) {
+    return "유튜브 일시 오류. 잠시 후 다시 시도해 주세요.";
+  }
+  return raw.length > 160 ? raw.slice(0, 160) + "..." : raw;
+}
+
 const DEFAULT_PERSONA_HINT = `예시:
 당신은 사주·운세 채널 운영자입니다.
 - 시청자에게 따뜻하고 친근하게 응답합니다.
@@ -387,6 +407,7 @@ export default function CommentsPage() {
     setBulk({ type: "post", current: 0, total: targets.length });
     let ok = 0,
       err = 0;
+    let quotaHit = false;
     for (let i = 0; i < targets.length; i++) {
       if (bulkAbortRef.current) break;
       const reply = targets[i].latest_reply!;
@@ -401,7 +422,16 @@ export default function CommentsPage() {
             body: JSON.stringify({ replyId: reply.id, finalText }),
           });
           if (res.ok) ok++;
-          else err++;
+          else {
+            err++;
+            // 쿼터 초과면 더 시도해도 무의미. 즉시 중단.
+            const data = await res.json().catch(() => ({}));
+            const errMsg = safeMessage(data.error, "");
+            if (/quotaExceeded|exceeded your.+quota/i.test(errMsg)) {
+              quotaHit = true;
+              bulkAbortRef.current = true;
+            }
+          }
         } catch {
           err++;
         }
@@ -412,13 +442,20 @@ export default function CommentsPage() {
         await new Promise((r) => setTimeout(r, 2000));
       }
     }
-    const stopped = bulkAbortRef.current;
+    const stopped = bulkAbortRef.current && !quotaHit;
     setBulk(null);
     await loadComments();
-    setBanner({
-      kind: "ok",
-      text: (stopped ? "중지됨. " : "") + `게시 ${ok}개 · 실패 ${err}개`,
-    });
+    if (quotaHit) {
+      setBanner({
+        kind: "warn",
+        text: `YouTube 일일 쿼터 초과 — 게시 ${ok}개 완료, 미게시 ${targets.length - ok - err + 1}개는 한국시간 오후 4~5시 리셋 후 "일괄 게시" 다시 누르면 자동 처리됩니다.`,
+      });
+    } else {
+      setBanner({
+        kind: "ok",
+        text: (stopped ? "중지됨. " : "") + `게시 ${ok}개 · 실패 ${err}개`,
+      });
+    }
   };
 
   const post = async (reply: Reply) => {
@@ -750,7 +787,9 @@ export default function CommentsPage() {
                           className="w-full text-sm rounded-lg bg-[var(--color-bg)] border border-[var(--color-line)] px-3 py-2"
                         />
                         {r.error_message && (
-                          <div className="text-xs text-amber-300 mt-2">⚠️ {r.error_message}</div>
+                          <div className="text-xs text-amber-300 mt-2">
+                            ⚠️ {prettifyReplyError(r.error_message)}
+                          </div>
                         )}
                         <div className="flex gap-2 justify-end mt-2">
                           <button
