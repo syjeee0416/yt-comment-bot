@@ -45,6 +45,23 @@ type Comment = {
   latest_reply: Reply | null;
 };
 
+// 어떤 형태의 에러든 안전한 문자열로 변환. 객체일 때 [object Object] 노출 방지.
+function safeMessage(v: unknown, fallback = "오류"): string {
+  if (typeof v === "string" && v.length > 0) return v;
+  if (v instanceof Error) return v.message;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.message === "string") return o.message;
+    if (typeof o.error === "string") return o.error;
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 const DEFAULT_PERSONA_HINT = `예시:
 당신은 사주·운세 채널 운영자입니다.
 - 시청자에게 따뜻하고 친근하게 응답합니다.
@@ -97,7 +114,10 @@ export default function CommentsPage() {
         const data = await chRes.json().catch(() => ({}));
         setBanner({
           kind: "warn",
-          text: data.error ?? "채널 로드 실패 — Supabase 설정을 확인하세요.",
+          text: safeMessage(
+            data.error,
+            "채널 로드 실패 — Supabase 설정을 확인하세요.",
+          ),
         });
       }
       if (acRes.ok) {
@@ -105,7 +125,7 @@ export default function CommentsPage() {
         setAccounts(acData.items ?? []);
       }
     } catch (err) {
-      setBanner({ kind: "warn", text: String(err) });
+      setBanner({ kind: "warn", text: safeMessage(err, "요청 실패") });
     } finally {
       setLoading(false);
     }
@@ -125,9 +145,13 @@ export default function CommentsPage() {
       const res = await fetch(`/api/yt-comments?channel_id=${channelId}`);
       const data = await res.json();
       if (res.ok) setComments(data.items ?? []);
-      else setBanner({ kind: "warn", text: data.error ?? "댓글 로드 실패" });
+      else
+        setBanner({
+          kind: "warn",
+          text: safeMessage(data.error, "댓글 로드 실패"),
+        });
     } catch (err) {
-      setBanner({ kind: "warn", text: String(err) });
+      setBanner({ kind: "warn", text: safeMessage(err, "요청 실패") });
     }
   }, [channelId]);
 
@@ -153,7 +177,7 @@ export default function CommentsPage() {
         setNewChannelName("");
         setBanner({ kind: "ok", text: `채널 "${name}" 추가됐어요.` });
       } else {
-        setBanner({ kind: "warn", text: data.error ?? "추가 실패" });
+        setBanner({ kind: "warn", text: safeMessage(data.error, "추가 실패") });
       }
     } finally {
       setBusy(null);
@@ -197,7 +221,7 @@ export default function CommentsPage() {
         setBanner({ kind: "ok", text: "답글 페르소나를 저장했어요." });
       } else {
         const data = await res.json();
-        setBanner({ kind: "warn", text: data.error ?? "저장 실패" });
+        setBanner({ kind: "warn", text: safeMessage(data.error, "저장 실패") });
       }
     } finally {
       setBusy(null);
@@ -238,7 +262,7 @@ export default function CommentsPage() {
         setBanner({ kind: "ok", text: base + tailSkip + tailOwn + tailAlready });
         await loadComments();
       } else {
-        setBanner({ kind: "warn", text: data.error ?? "동기화 실패" });
+        setBanner({ kind: "warn", text: safeMessage(data.error, "동기화 실패") });
       }
     } finally {
       setBusy(null);
@@ -255,7 +279,7 @@ export default function CommentsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        const raw = String(data.error ?? "초안 생성 실패");
+        const raw = safeMessage(data.error, "초안 생성 실패");
         let nice = raw;
         if (/503|UNAVAILABLE|overloaded|high demand/i.test(raw)) {
           nice = "Gemini가 일시적으로 바빠요. 1~2분 후 다시 눌러주세요.";
@@ -296,7 +320,7 @@ export default function CommentsPage() {
         setBanner({ kind: "ok", text: "답글을 게시했어요." });
         await loadComments();
       } else {
-        setBanner({ kind: "warn", text: data.error ?? "게시 실패" });
+        setBanner({ kind: "warn", text: safeMessage(data.error, "게시 실패") });
       }
     } finally {
       setBusy(null);
