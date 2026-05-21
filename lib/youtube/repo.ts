@@ -168,12 +168,16 @@ export async function listVideos(channelId: string): Promise<YtVideoRow[]> {
 export async function upsertComments(rows: Omit<YtCommentRow, "fetched_at">[]): Promise<void> {
   if (rows.length === 0) return;
   const sb = getSupabaseAdmin();
-  // id로 중복은 무시 — 이미 있는 댓글은 상태(replied 등) 유지.
-  const { error } = await sb.from("yt_comments").upsert(rows, {
-    onConflict: "id",
-    ignoreDuplicates: true,
-  });
-  if (error) throw error;
+  // 청크 처리 — 한 번에 너무 큰 배열 보내면 supabase가 Bad Request 반환할 수 있음.
+  const CHUNK = 200;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const slice = rows.slice(i, i + CHUNK);
+    const { error } = await sb.from("yt_comments").upsert(slice, {
+      onConflict: "id",
+      ignoreDuplicates: true,
+    });
+    if (error) throw error;
+  }
 }
 
 export async function updateCommentStatus(input: {
@@ -215,15 +219,22 @@ export async function markCommentsAsAlreadyReplied(input: {
 }): Promise<number> {
   if (input.commentIds.length === 0) return 0;
   const sb = getSupabaseAdmin();
-  const { data, error } = await sb
-    .from("yt_comments")
-    .update({ status: "replied", classification: "external_reply" })
-    .eq("channel_id", input.channelId)
-    .in("id", input.commentIds)
-    .in("status", ["new", "drafted", "approved"])
-    .select("id");
-  if (error) throw error;
-  return data?.length ?? 0;
+  // in() 절에 너무 많은 ID 넣으면 URL 길이 한계로 Bad Request. 청크 처리.
+  const CHUNK = 100;
+  let total = 0;
+  for (let i = 0; i < input.commentIds.length; i += CHUNK) {
+    const slice = input.commentIds.slice(i, i + CHUNK);
+    const { data, error } = await sb
+      .from("yt_comments")
+      .update({ status: "replied", classification: "external_reply" })
+      .eq("channel_id", input.channelId)
+      .in("id", slice)
+      .in("status", ["new", "drafted", "approved"])
+      .select("id");
+    if (error) throw error;
+    total += data?.length ?? 0;
+  }
+  return total;
 }
 
 // ─────────────── 답글 ───────────────
