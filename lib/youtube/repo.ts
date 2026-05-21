@@ -207,6 +207,25 @@ export async function markOwnChannelCommentsAsSkipped(input: {
   return data?.length ?? 0;
 }
 
+// 사용자가 유튜브에서 직접 답글 단 댓글들을 replied로 마킹.
+// (우리 도구를 거치지 않고 유튜브에서 직접 단 답글까지 추적해서 큐에서 빼는 용도)
+export async function markCommentsAsAlreadyReplied(input: {
+  channelId: string;
+  commentIds: string[];
+}): Promise<number> {
+  if (input.commentIds.length === 0) return 0;
+  const sb = getSupabaseAdmin();
+  const { data, error } = await sb
+    .from("yt_comments")
+    .update({ status: "replied", classification: "external_reply" })
+    .eq("channel_id", input.channelId)
+    .in("id", input.commentIds)
+    .in("status", ["new", "drafted", "approved"])
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
+}
+
 // ─────────────── 답글 ───────────────
 
 export async function insertReplyDraft(input: {

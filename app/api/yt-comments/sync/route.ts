@@ -11,6 +11,7 @@ import {
   upsertVideos,
   upsertComments,
   markOwnChannelCommentsAsSkipped,
+  markCommentsAsAlreadyReplied,
 } from "@/lib/youtube/repo";
 import { errorResponse } from "@/lib/api-errors";
 
@@ -93,6 +94,8 @@ export async function POST(req: NextRequest) {
       error?: string;
     }> = [];
     const skippedReasons: string[] = [];
+    // 사용자가 유튜브에서 직접 답글 단 댓글 ID 모음 — sync 끝에 한 번에 replied로 마킹.
+    const alreadyRepliedCommentIds: string[] = [];
 
     for (const v of videos) {
       // recent 모드: 영상당 1페이지(100개)만. 빠른 폴링용.
@@ -109,20 +112,29 @@ export async function POST(req: NextRequest) {
           (c) => c.authorChannelId !== account.yt_channel_id,
         );
 
-        const rows = filtered.map((c) => ({
-          id: c.id,
-          video_id: v.id,
-          channel_id: channelId,
-          author_display_name: c.authorDisplayName,
-          author_channel_id: c.authorChannelId,
-          text_original: c.textOriginal,
-          like_count: c.likeCount,
-          published_at: c.publishedAt,
-          is_reply: false,
-          parent_comment_id: null,
-          status: "new" as const,
-          classification: null,
-        }));
+        const rows = filtered.map((c) => {
+          // 이 댓글의 답글들 중 우리 채널이 단 게 있으면 이미 답글한 거 — 들어올 때부터 replied로.
+          const alreadyReplied = c.replyAuthorChannelIds.includes(
+            account.yt_channel_id,
+          );
+          if (alreadyReplied) alreadyRepliedCommentIds.push(c.id);
+          return {
+            id: c.id,
+            video_id: v.id,
+            channel_id: channelId,
+            author_display_name: c.authorDisplayName,
+            author_channel_id: c.authorChannelId,
+            text_original: c.textOriginal,
+            like_count: c.likeCount,
+            published_at: c.publishedAt,
+            is_reply: false,
+            parent_comment_id: null,
+            status: (alreadyReplied ? "replied" : "new") as
+              | "new"
+              | "replied",
+            classification: alreadyReplied ? "external_reply" : null,
+          };
+        });
         await upsertComments(rows);
         totalNewComments += rows.length;
         perVideo.push({ videoId: v.id, fetched: rows.length });
@@ -144,6 +156,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 이미 답글 단 댓글들 일괄 마킹 — upsert가 ignoreDuplicates라 기존 행은 안 바뀌니
+    // 여기서 update로 한 번에 처리. idempotent.
+    const alreadyRepliedCleared = await markCommentsAsAlreadyReplied({
+      channelId,
+      commentIds: alreadyRepliedCommentIds,
+    });
+
     return NextResponse.json({
       ok: true,
       videos: videos.length,
@@ -151,6 +170,7 @@ export async function POST(req: NextRequest) {
       perVideo,
       skipped: skippedReasons,
       ownChannelCommentsCleared: ownCleared,
+      alreadyRepliedCleared,
     });
   } catch (err) {
     return errorResponse(err);

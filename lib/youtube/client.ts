@@ -184,6 +184,9 @@ export type YtCommentSummary = {
   likeCount: number;
   publishedAt: string;
   totalReplyCount: number;
+  // 그 댓글에 달린 답글들의 작성자 채널 ID 모음 (최대 5개, replies가 5개 초과면 일부만).
+  // 우리 채널 ID가 이 목록에 있으면 = 이미 답글 단 댓글.
+  replyAuthorChannelIds: string[];
 };
 
 export async function fetchVideoComments(input: {
@@ -192,7 +195,8 @@ export async function fetchVideoComments(input: {
   pageToken?: string;
 }): Promise<{ items: YtCommentSummary[]; nextPageToken?: string }> {
   const params = new URLSearchParams({
-    part: "snippet",
+    // replies를 추가하면 응답에 답글이 최대 5개까지 포함됨. 쿼터는 그대로 1u.
+    part: "snippet,replies",
     videoId: input.videoId,
     maxResults: "100",
     order: "time",
@@ -217,11 +221,21 @@ export async function fetchVideoComments(input: {
           };
         };
       };
+      replies?: {
+        comments?: Array<{
+          snippet: {
+            authorChannelId?: { value: string };
+          };
+        }>;
+      };
     }>;
   };
 
   const items: YtCommentSummary[] = (json.items ?? []).map((it) => {
     const top = it.snippet.topLevelComment;
+    const replyAuthorChannelIds: string[] = (it.replies?.comments ?? [])
+      .map((r) => r.snippet.authorChannelId?.value)
+      .filter((v): v is string => Boolean(v));
     return {
       id: top.id,
       authorDisplayName: top.snippet.authorDisplayName,
@@ -230,6 +244,7 @@ export async function fetchVideoComments(input: {
       likeCount: top.snippet.likeCount,
       publishedAt: top.snippet.publishedAt,
       totalReplyCount: it.snippet.totalReplyCount,
+      replyAuthorChannelIds,
     };
   });
   return { items, nextPageToken: json.nextPageToken };

@@ -226,13 +226,16 @@ export default function CommentsPage() {
       if (res.ok) {
         const skipped = Array.isArray(data.skipped) ? data.skipped : [];
         const own = Number(data.ownChannelCommentsCleared ?? 0);
+        const already = Number(data.alreadyRepliedCleared ?? 0);
         const base = `영상 ${data.videos}개 · 댓글 ${data.comments}개 가져왔어요.`;
         const tailSkip =
           skipped.length > 0
             ? ` (건너뛴 영상 ${skipped.length}개: ${skipped.slice(0, 3).join(", ")}${skipped.length > 3 ? "..." : ""})`
             : "";
         const tailOwn = own > 0 ? ` · 본인 댓글 ${own}개 정리됨` : "";
-        setBanner({ kind: "ok", text: base + tailSkip + tailOwn });
+        const tailAlready =
+          already > 0 ? ` · 이미 답글 단 댓글 ${already}개 정리됨` : "";
+        setBanner({ kind: "ok", text: base + tailSkip + tailOwn + tailAlready });
         await loadComments();
       } else {
         setBanner({ kind: "warn", text: data.error ?? "동기화 실패" });
