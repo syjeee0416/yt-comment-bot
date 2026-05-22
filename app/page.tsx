@@ -387,8 +387,12 @@ export default function CommentsPage() {
   };
 
   const bulkPost = async () => {
+    // 초안 + 이전에 게시 실패(failed)한 답글까지 잡음 — 쿼터 회복 후 자동 재시도용.
+    // posted는 우리 reply API가 409로 차단하니 들어가도 무해, 다만 disabled 표시도 같이.
     const targets = comments.filter(
-      (c) => c.latest_reply && c.latest_reply.status === "draft",
+      (c) =>
+        c.latest_reply &&
+        (c.latest_reply.status === "draft" || c.latest_reply.status === "failed"),
     );
     if (targets.length === 0) {
       setBanner({ kind: "ok", text: "게시할 답글 초안이 없어요." });
@@ -686,16 +690,22 @@ export default function CommentsPage() {
                   onClick={bulkPost}
                   disabled={
                     comments.filter(
-                      (c) => c.latest_reply && c.latest_reply.status === "draft",
+                      (c) =>
+                        c.latest_reply &&
+                        (c.latest_reply.status === "draft" ||
+                          c.latest_reply.status === "failed"),
                     ).length === 0
                   }
                   className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-40"
-                  title="검토 없이 초안들을 유튜브에 일괄 게시 (2초 간격)"
+                  title="초안 + 이전에 실패한 답글을 유튜브에 일괄 게시 (2초 간격)"
                 >
                   일괄 게시 (
                   {
                     comments.filter(
-                      (c) => c.latest_reply && c.latest_reply.status === "draft",
+                      (c) =>
+                        c.latest_reply &&
+                        (c.latest_reply.status === "draft" ||
+                          c.latest_reply.status === "failed"),
                     ).length
                   }
                   )
